@@ -1,7 +1,8 @@
-from lxml import html
-import requests
 from py2neo import Graph, Node, Relationship
 
+# Run: neo4j start
+# go to http://localhost:7474 to change the default password from neo4j / neo4j
+# change the password in this code:
 g = Graph(user="neo4j", password="Swift")
 tx = g.begin()
 
@@ -16,7 +17,4 @@ tx.create(c)
 
 tx.commit()
 
-page = requests.get('http://moma.org/collection/works/2')
-tree = html.fromstring(page.content)
-
-print(len(tree.cssselect('div')))
+print('Sample graph successfully created! Check out http://localhost:7474')
