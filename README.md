@@ -1,8 +1,10 @@
 # Graph Databases tutorial
 
-Organize a graph database for the Museum of Modern Art collection
+Organize a Neo4j graph database for the Museum of Modern Art collection
 
 Scrape web pages into graph data
+
+Make cool queries of graph data
 
 # Prerequisites
 
@@ -141,9 +143,58 @@ def ScrapeCollection(workID):
         tx.create(c)
 ```
 
+### Browsing and querying the database
+
+You can view the data after running this script at http://localhost:7474
+
+Click on 'Artist' and then click on the circle to see the attributes and relationship.
+
+This is a good time to introduce Cypher, Neo4j's preferred query language. When you work with
+graphs, you can't use SQL. There isn't one standard comparable to SQL in the graph world. The Neo4j team has been working to make Cypher an open language. Neo4j also supports Gremlin, a more common but perhaps more difficult query language. Other databases support SPARQL.
+
+When you clicked 'Artist' in the admin panel, you were initiating your first Cypher query:
+
+```bash
+MATCH (n:Artist) RETURN n LIMIT 25
+```
+
+Here we establish a query for a list of all Artist nodes, stored as n, return it, and use the SQL-like
+LIMIT to keep us from returning too many nodes.
+
+You can return Artworks in a similar syntax, but you could also make a more graph-like query using an ASCII-art arrow:
+
+```bash
+MATCH () -[`ARTIST OF`] -> (m:Artwork) RETURN m LIMIT 25
+```
+
+Here the empty parentheses represent 'any node', inside the arrow we specify the relationship name (which only needs these quotes if it includes a space) and the arrow points to the artwork which
+we like to return.
+
+
 ## Remove old data when re-running the script
 
-As we develop the script, we risk storing multiple copies of artworks and artists each time we rewrite and re-run our script.  Let's come up with a quick script to delete old copies before scraping.
+As we develop the script, we risk storing multiple copies of artworks and artists each time we rewrite and re-run our script.
+
+Neo4j requires you to delete relationships before deleting individual nodes. Delete these connections first, making sure not to use the LIMIT clause and partially-deleting things:
+
+```bash
+MATCH () -[r:`ARTIST OF`] -> () DELETE r;
+```
+
+Then the artists and artworks:
+
+```bash
+MATCH (n:Artist) DELETE n;
+MATCH (m:Artwork) DELETE m;
+```
+
+Here's how we can run the deletion at the beginning of our Python script (no transaction needed)
+
+```python
+g.run('MATCH () -[r:`ARTIST OF`] -> () DELETE r;')
+g.run('MATCH (n:Artist) DELETE n;')
+g.run('MATCH (m:Artwork) DELETE m;')
+```
 
 ## Storing ten artworks
 

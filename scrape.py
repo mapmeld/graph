@@ -8,6 +8,11 @@ findid = re.compile(r"\d+")
 # change the Neo4j password to yours
 g = Graph(user="neo4j", password="Swift")
 
+# reset the graph
+g.run('MATCH () -[r:`ARTIST OF`] -> () DELETE r;')
+g.run('MATCH (n:Artist) DELETE n;')
+g.run('MATCH (m:Artwork) DELETE m;')
+
 tx = g.begin()
 
 def ScrapeCollection(workID):
