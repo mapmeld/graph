@@ -17,6 +17,9 @@ g.run('MATCH (m:Artwork) DELETE m;')
 
 def ScrapeCollection(workID):
     page = requests.get('http://moma.org/collection/works/' + str(workID))
+    if (str(page.content).find('moma.org/404.html') > -1):
+        print('404')
+        return
     tree = html.fromstring(page.content)
 
     # the title is a complex, potentially italicized field
@@ -54,8 +57,8 @@ def ScrapeCollection(workID):
         index = index + 1
         tx.create(c)
 
-id = 2
-while id < 12:
+id = 1
+while id < 100:
     print('Scanning ' + str(id))
     tx = g.begin()
     ScrapeCollection(id)
