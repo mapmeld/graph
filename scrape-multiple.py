@@ -9,11 +9,11 @@ findid = re.compile(r"\d+")
 g = Graph(user="neo4j", password="Swift")
 
 # reset the graph
-g.run('MATCH () -[r:`ARTIST OF`] -> () DELETE r;')
+# take care to use an underscore in ARTIST_OF
+# or in queries you will need to use tic quotes ``
+g.run('MATCH () -[r:ARTIST_OF] -> () DELETE r;')
 g.run('MATCH (n:Artist) DELETE n;')
 g.run('MATCH (m:Artwork) DELETE m;')
-
-tx = g.begin()
 
 def ScrapeCollection(workID):
     page = requests.get('http://moma.org/collection/works/' + str(workID))
@@ -43,12 +43,21 @@ def ScrapeCollection(workID):
         artist_link = artist.get('href')
         artistID = findid.search(artist_link).group(0)
 
-        bio = Node("Artist", name=name, moma_id=artistID)
-        tx.create(bio)
+        # see if artist exists yet
+        bio = g.find_one("Artist", "moma_id", artistID)
 
-        c = Relationship(bio, "ARTIST OF", artwork, order=index)
+        if bio is None:
+            bio = Node("Artist", name=name, moma_id=artistID)
+            tx.create(bio)
+
+        c = Relationship(bio, "ARTIST_OF", artwork, order=index)
         index = index + 1
         tx.create(c)
 
-ScrapeCollection(2)
-tx.commit()
+id = 2
+while id < 12:
+    print('Scanning ' + str(id))
+    tx = g.begin()
+    ScrapeCollection(id)
+    tx.commit()
+    id = id + 1

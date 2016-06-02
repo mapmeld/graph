@@ -62,6 +62,7 @@ import requests
 ...
 page = requests.get('http://moma.org/collection/works/' + str(id))
 print(page.content)
+> "<!DOCTYPE html> ..."
 ```
 
 We don't just want the text, though - we want to be able to pick out a particular link, read the artist name, and read their bio page's ID from the link. Using the ```lxml``` module:
@@ -79,7 +80,7 @@ Artists returns an array, because there could be multiple artists. Let's extract
 for artist in artists:
   print(artist.text)
 
-> Otto Wagner
+> "Otto Wagner"
 ```
 
 Include the link, the 'href' attribute, as well:
@@ -88,12 +89,12 @@ Include the link, the 'href' attribute, as well:
 for artist in artists:
   print(artist.get('href'))
 
-> /collection/artists/6210?locale=en
+> "/collection/artists/6210?locale=en"
 ```
 
-Note two things: that the URL is a relative URL and does not contain moma.org, and that the artist ID is the only number in the link.
+Note two things: that the URL is a relative URL which does not contain moma.org, and that the artist ID is the only number in the link.
 
-We can extract the ID using Python's built-in regex library, ```re```. Search for multiple digits using the ```\d+``` operator.
+We can extract the ID using Python's built-in regular expression library, ```re```. Search for multiple digits using the ```\d+``` regular expression.
 
 ```python
 import re
@@ -104,7 +105,67 @@ for artist in artists:
   print(matchID.search(artistLink).group(0))
 ```
 
-## Store the scraped data in the database
+We can scrape the title, date, and artists' names using other CSS selectors.
+
+## Store one artwork in the database
+
+### Connecting to the Neo4j database
+
+py2neo makes this process easy:
+
+```python
+from py2neo import Graph, Node, Relationship
+
+# change the password to yours
+g = Graph(user="neo4j", password="Swift")
+```
+
+### Transaction
+
+When adding items to the Neo4j database, you should use transactions. If any part of your
+database transaction fails, the transaction will be rolled back and none of its changes will
+be made. This saves you potential agony from multiple, partially-complete transactions.
+
+```python
+# a transaction
+
+tx = g.begin()
+# graph editing code goes here
+tx.commit()
+```
+
+### Creating a Node
+
+Let's create our first artwork node.  Hopefully you've scraped this data or other interesting data
+before reaching this point.
+
+```python
+# sandwich this code between the beginning and end of your transaction
+
+# a common label ("Artwork") followed by properties
+artwork = Node("Artwork", title=full_title, date=first_date, moma_id=workID)
+
+# include the node in your transaction
+tx.create(artwork)
+```
+
+### Creating a Relationship
+
+Create a Relationship in a similar way. Make sure to use an underscore instead of a space,
+so you don't have to escape it in later queries.
+
+Like nodes, you can add additional properties to a relationship. The order of artists' names
+on an artwork record is often significant, much like the order of scientists' names on a research paper.
+Let's add an 'order' property to keep track.
+
+```python
+c = Relationship(artist, "ARTIST_OF", artwork, order=index)
+tx.create(c)
+```
+
+### Putting it together
+
+Here's how I would combine the page-scraping code and transacting code into one Python file:
 
 ```python
 def ScrapeCollection(workID):
@@ -138,9 +199,16 @@ def ScrapeCollection(workID):
         bio = Node("Artist", name=name, moma_id=artistID)
         tx.create(bio)
 
-        c = Relationship(bio, "ARTIST OF", artwork, order=index)
+        # take care to use an underscore here
+        # or in queries you will need to use tic quotes ``
+        c = Relationship(bio, "ARTIST_OF", artwork, order=index)
         index = index + 1
         tx.create(c)
+
+# the actual use of the function
+tx = g.begin()
+ScrapeCollection(2)
+tx.commit()
 ```
 
 ### Browsing and querying the database
@@ -164,7 +232,7 @@ LIMIT to keep us from returning too many nodes.
 You can return Artworks in a similar syntax, but you could also make a more graph-like query using an ASCII-art arrow:
 
 ```bash
-MATCH () -[`ARTIST OF`] -> (m:Artwork) RETURN m LIMIT 25
+MATCH () -[ARTIST_OF] -> (m:Artwork) RETURN m LIMIT 25
 ```
 
 Here the empty parentheses represent 'any node', inside the arrow we specify the relationship name (which only needs these quotes if it includes a space) and the arrow points to the artwork which
@@ -178,7 +246,7 @@ As we develop the script, we risk storing multiple copies of artworks and artist
 Neo4j requires you to delete relationships before deleting individual nodes. Delete these connections first, making sure not to use the LIMIT clause and partially-deleting things:
 
 ```bash
-MATCH () -[r:`ARTIST OF`] -> () DELETE r;
+MATCH () -[r:ARTIST_OF] -> () DELETE r;
 ```
 
 Then the artists and artworks:
@@ -191,15 +259,47 @@ MATCH (m:Artwork) DELETE m;
 Here's how we can run the deletion at the beginning of our Python script (no transaction needed)
 
 ```python
-g.run('MATCH () -[r:`ARTIST OF`] -> () DELETE r;')
+g.run('MATCH () -[r:ARTIST_OF] -> () DELETE r;')
 g.run('MATCH (n:Artist) DELETE n;')
 g.run('MATCH (m:Artwork) DELETE m;')
 ```
 
-## Storing ten artworks
+## Store multiple artworks in the database
 
-- loop
-- make sure artist -ID- is looked up before creating a new artist
+These examples come from ```scrape-multiple.py```.
+
+Start out with the ```ScrapeCollection``` function from scraping one artwork,
+but change the end of the script to a ```while``` loop to load artworks 2 to 11.
+
+```python
+id = 2
+while id < 12:
+    tx = g.begin()
+    ScrapeCollection(id)
+    tx.commit()
+    id = id + 1
+```
+
+Because of artworks having unique IDs, we know that we create one each time we see it.
+But we need to make sure that an artist node isn't created twice. There are some Cypher
+queries to do this, or we can use py2neo's shorthand ```find_one```
+
+```python
+# get bio of artist or create one
+bio = g.find_one("Artist", "moma_id", artistID)
+
+if bio is None:
+    bio = Node("Artist", name=name, moma_id=artistID)
+    tx.create(bio)
+```
+
+Running this script, and then re-opening the object browser at ```http://localhost:7474```, I see only
+four artists for ten artworks. Double-clicking Bernard Tschumi, I see six of them are his works.
+
+<img src="https://i.imgur.com/QmTcSmW.png"/>
+
+At first they look like duplicates, but by hovering over each circle you can see the ```title``` and
+other properties are different. Success!
 
 # License
 
